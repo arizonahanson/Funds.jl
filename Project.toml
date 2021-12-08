@@ -1,0 +1,9 @@
+name = "Funds"
+uuid = "67c842a4-a790-4433-bbcd-332d6b9dace0"
+version = "0.3.0"
+
+[deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Query = "1a8c2f83-1ff3-5112-b086-8aa67b057ba1"
+REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"

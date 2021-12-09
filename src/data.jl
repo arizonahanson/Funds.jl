@@ -106,7 +106,7 @@ end
 
 function get_non_core(account::DataFrame)
   nonCore = @from asset in account begin
-    @select {asset.Symbol, asset.Quantity, asset.Last_Price, asset.Current_Value}
+    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Last_Price, asset.Current_Value}
     @collect DataFrame
   end
   return filter(asset -> !is_core(get(asset.Symbol, "?")), nonCore)
@@ -115,7 +115,7 @@ end
 function get_holdings(target::DataFrame, nonCore::DataFrame)
   return @from asset in leftjoin(target, nonCore, on = :Symbol) begin
     @orderby descending(asset.Allocation), descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, Quantity=get(asset.Quantity, 0.0), asset.Last_Price, Current_Value=get(asset.Current_Value, "\$0.00"), asset.Allocation, Trade_For=""}
+    @select {asset.Symbol, asset.Description, Quantity=get(asset.Quantity, 0.0), asset.Last_Price, Current_Value=get(asset.Current_Value, "\$0.00"), asset.Allocation, Trade_For=""}
     @collect DataFrame
   end
 end
@@ -123,7 +123,7 @@ end
 function get_exiting(target::DataFrame, nonCore::DataFrame)
   exits = @from asset in nonCore begin
     @orderby descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Quantity, asset.Last_Price, asset.Current_Value, Allocation=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Trade_For="CASH"}
+    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Last_Price, asset.Current_Value, Allocation=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Trade_For="CASH"}
     @collect DataFrame
   end
   return filter(e -> !(e.Symbol in target.Symbol), exits)
@@ -158,13 +158,13 @@ function optimize_trades(trades::DataFrame, cash::Int)
   sells = @from trade in trades begin
     @where trade.Trade_Type == "SELL"
     @orderby dtoi(trade.Trade_Value)
-    @select {trade.Symbol, trade.Quantity, trade.Last_Price, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="CASH", Trade_Quantity=NaN}
+    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Last_Price, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="CASH", Trade_Quantity=NaN}
     @collect DataFrame
   end
   buys = @from trade in trades begin
     @where trade.Trade_Type == "BUY"
     @orderby descending(dtoi(trade.Trade_Value))
-    @select {trade.Symbol, trade.Quantity, trade.Last_Price, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="N/A", Trade_Quantity=NaN}
+    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Last_Price, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="N/A", Trade_Quantity=NaN}
     @collect DataFrame
   end
   trades = similar(sells, 0)
@@ -204,6 +204,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
       sell.Trade_Value = itod(dtoi(sell.Trade_Value) + dtoi(buy.Trade_Value))
       buy.Trade_For = buy.Symbol
       buy.Symbol = sell.Symbol
+      buy.Description = sell.Description
       buy.Quantity = sell.Quantity
       buy.Last_Price = sell.Last_Price
       buy.Current_Value = sell.Current_Value
@@ -304,12 +305,12 @@ function optimize_trades(trades::DataFrame, cash::Int)
   # final sort
   first = @from t in first begin
     @orderby endswith(t.Symbol, "XX"), endswith(t.Symbol, "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
-    @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
+    @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
     @collect DataFrame
   end
   second = @from t in second begin
     @orderby endswith(t.Symbol, "XX"), endswith(t.Symbol, "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
-    @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
+    @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
     @collect DataFrame
   end
   return first, second

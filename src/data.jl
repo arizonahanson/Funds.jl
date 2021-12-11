@@ -115,7 +115,7 @@ end
 function get_holdings(target::DataFrame, nonCore::DataFrame)
   return @from asset in leftjoin(target, nonCore, on = :Symbol) begin
     @orderby descending(asset.Allocation), descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Description, Quantity=get(asset.Quantity, 0.0), Current_Value=get(asset.Current_Value, "\$0.00"), asset.Allocation, Trade_For=""}
+    @select {asset.Symbol, asset.Description, Quantity=get(asset.Quantity, 0.0), Current_Value=get(asset.Current_Value, "\$0.00"), asset.Allocation}
     @collect DataFrame
   end
 end
@@ -123,7 +123,7 @@ end
 function get_exiting(target::DataFrame, nonCore::DataFrame)
   exits = @from asset in nonCore begin
     @orderby descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Allocation=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Trade_For="CASH"}
+    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Allocation=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Allocation_Drift=NaN}
     @collect DataFrame
   end
   return filter(e -> !(e.Symbol in target.Symbol), exits)
@@ -136,21 +136,26 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   nonCore = get_non_core(account)
   # new account total
   core_value = sum_dtoi(core.Current_Value)
+  non_core_value = sum_dtoi(nonCore.Current_Value)
   cash = core_value + deposit
-  newTotal = sum_dtoi(nonCore.Current_Value) + cash
+  newTotal = non_core_value + cash
   # assets not in target (sell them)
   exiting = get_exiting(target, nonCore)
   # target assets (trade them)
   holdings = get_holdings(target, nonCore)
+  holdings[!, :Allocation_Drift] = map(h -> floor(((dtoi(h.Current_Value)*100/non_core_value) - h.Allocation)*10)/10, eachrow(holdings))
+  print(replace(sprint(show, holdings, context=:compact=>false), r".*DataFrame" => ""))
+  println()
   # trade value in dollars
   tradeAmount = allocate(newTotal, holdings.Allocation[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])
   tradeType = map(t -> t < 0 ? "SELL" : "BUY", tradeAmount)
   holdings[!, :Trade_Type] = tradeType
   holdings[!, :Trade_Value] = itod.(tradeAmount)
   # combine all tradable holdings
-  append!(holdings, exiting)
-  # account totals
-  return optimize_trades(holdings, cash)
+  trades = vcat(holdings, exiting)
+  # create exchange trades, sort
+  trades = optimize_trades(trades, cash)
+  return trades
 end
 
 function optimize_trades(trades::DataFrame, cash::Int)
@@ -175,7 +180,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
       break
     end
     sell, sells = unshift(sells)
-    if !endswith(sell.Symbol, "X")
+    if !endswith(get(sell.Symbol, "?"), "X")
       # not exchangable sell, push it
       push!(trades, sell)
       continue
@@ -187,7 +192,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
       break
     end
     buy, buys = unshift(buys)
-    if !endswith(buy.Symbol, "X")
+    if !endswith(get(buy.Symbol, "?"), "X")
       # not exchangable buy, push it
       push!(trades, buy)
       push!(sells, sell)
@@ -267,7 +272,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
   # split trades into sells-first, and buys-second
   first = @from trade in trades begin
     @where trade.Trade_Type != "BUY"
-    @orderby endswith(trade.Symbol, "XX"), descending(trade.Trade_Type), trade.Symbol, descending(abs(dtoi(trade.Trade_Value)))
+    @orderby endswith(get(trade.Symbol, "?"), "XX"), descending(trade.Trade_Type), trade.Symbol, descending(abs(dtoi(trade.Trade_Value)))
     @select trade
     @collect DataFrame
   end
@@ -280,7 +285,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
   end
   # non-mutual fund sales - for funding trades
   non_mutual = @from trade in first begin
-    @where !endswith(trade.Symbol, "X")
+    @where !endswith(get(trade.Symbol, "?"), "X")
     @select trade
     @collect DataFrame
   end
@@ -303,12 +308,12 @@ function optimize_trades(trades::DataFrame, cash::Int)
   end
   # final sort
   first = @from t in first begin
-    @orderby endswith(t.Symbol, "XX"), endswith(t.Symbol, "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
+    @orderby endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
     @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
     @collect DataFrame
   end
   second = @from t in second begin
-    @orderby endswith(t.Symbol, "XX"), endswith(t.Symbol, "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
+    @orderby endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
     @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
     @collect DataFrame
   end

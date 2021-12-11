@@ -169,7 +169,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
   buys = @from trade in trades begin
     @where trade.Trade_Type == "BUY"
     @orderby descending(dtoi(trade.Trade_Value))
-    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="N/A", Trade_Quantity=NaN}
+    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="", Trade_Quantity=NaN}
     @collect DataFrame
   end
   trades = similar(sells, 0)
@@ -249,7 +249,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
     if trade.Trade_Type == "BUY"
       # skip trade-quantity for buys
       trade.Trade_Quantity = NaN
-      trade.Trade_For = "N/A"
+      trade.Trade_For = ""
       continue
     end
     if trade.Symbol != symbol

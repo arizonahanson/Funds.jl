@@ -29,7 +29,7 @@ function open_fidelity_csv(path::String=homedir() * "/Downloads")
   return df[:,2:8]
 end
 
-function open_targets_csv(path::String=homedir() * "/Documents")
+function open_strategy_csv(path::String=homedir() * "/Documents")
   filename = request_csv(path, "Open Targets CSV:")
   return DataFrame(CSV.File(filename; normalizenames=true, stringtype=String))
 end
@@ -42,16 +42,7 @@ function by_account(accounts::DataFrame, name::String)
   end
 end
 
-function by_target(targets::DataFrame, name::String)
-  @from t in targets begin
-    @where t.Target_Name == name
-    @select t
-    @collect DataFrame
-  end
-end
-
-function get_account()
-  accounts = open_fidelity_csv()
+function get_account(accounts::DataFrame)
   account_names = @from a in accounts begin
     @group a by a.Account_Name into n
     @select {Account_Name=key(n)}
@@ -61,15 +52,35 @@ function get_account()
   return by_account(accounts, account_name)
 end
 
-function get_target()
-  targets = open_targets_csv()
-  target_names = @from a in targets begin
-    @group a by a.Target_Name into n
-    @select {target_Name=key(n)}
+function target_symbol(taxable::Bool, target)
+  if taxable
+    return target.Symbol_Tax
+  else
+    return target.Symbol_Adv
+  end
+end
+
+function make_target(strategy::DataFrame)
+  taxable = ("Taxable" == choose("Account Type:", ["Taxable", "Tax-Advantaged"]))
+  levels = ["Conservative", "Moderate", "Balanced", "Growth/Income", "Growth", "Aggressive"]
+  target = choose("Target:", levels)
+  sort!(strategy, :Target_Allocation, rev=true)
+  # starts at 30%
+  equity_percent = (findfirst(t -> t == target, levels) + 2) * 10
+  equities = @from t in strategy begin
+    @where !Bool(t.Income)
+    @select {Symbol=target_symbol(taxable, t), t.Target_Allocation}
     @collect DataFrame
   end
-  target_name = choose("Choose target:", target_names[:, 1])
-  return by_target(targets, target_name)
+  equities.Target_Allocation = allocate(equity_percent, equities.Target_Allocation)
+  income = @from t in strategy begin
+    @where Bool(t.Income)
+    @select {Symbol=target_symbol(taxable, t), t.Target_Allocation}
+    @collect DataFrame
+  end
+  income_percent = 100 - equity_percent
+  income.Target_Allocation = allocate(income_percent, income.Target_Allocation)
+  return sort(vcat(equities, income), :Target_Allocation, rev=true)
 end
 
 function unshift(trades::DataFrame)
@@ -132,7 +143,10 @@ end
 function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   # core cash and pending
   core = get_core(account)
-  printframe(core)
+  println("\n-- STATUS --")
+  if nrow(core) > 0
+    printframe(core)
+  end
   # assets other than core position
   nonCore = get_non_core(account)
   # new account total
@@ -325,10 +339,11 @@ function printframe(df::DataFrame)
 end
 
 function rebalance(deposit::Int=0)
+  accounts = open_fidelity_csv()
+  strategy = open_strategy_csv()
   println()
-  account = get_account()
-  println()
-  target = get_target()
+  account = get_account(accounts)
+  target = make_target(strategy)
   a, b = generate_trades(account, target, deposit)
   println("\n---- TRADES ----")
   printframe(a)

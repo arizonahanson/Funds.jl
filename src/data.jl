@@ -64,23 +64,23 @@ function make_target(strategy::DataFrame)
   taxable = ("Taxable" == choose("Account Type:", ["Taxable", "Tax-Advantaged"]))
   levels = ["Conservative", "Moderate", "Balanced", "Growth/Income", "Growth", "Aggressive"]
   target = choose("Target:", levels)
-  sort!(strategy, :Target_Allocation, rev=true)
+  sort!(strategy, :Target, rev=true)
   # starts at 30%
   equity_percent = (findfirst(t -> t == target, levels) + 2) * 10
   equities = @from t in strategy begin
     @where !Bool(t.Income)
-    @select {Symbol=target_symbol(taxable, t), t.Target_Allocation}
+    @select {Symbol=target_symbol(taxable, t), t.Target}
     @collect DataFrame
   end
-  equities.Target_Allocation = allocate(equity_percent, equities.Target_Allocation)
+  equities.Target = allocate(equity_percent, equities.Target)
   income = @from t in strategy begin
     @where Bool(t.Income)
-    @select {Symbol=target_symbol(taxable, t), t.Target_Allocation}
+    @select {Symbol=target_symbol(taxable, t), t.Target}
     @collect DataFrame
   end
   income_percent = 100 - equity_percent
-  income.Target_Allocation = allocate(income_percent, income.Target_Allocation)
-  return sort(vcat(equities, income), :Target_Allocation, rev=true)
+  income.Target = allocate(income_percent, income.Target)
+  return sort(vcat(equities, income), :Target, rev=true)
 end
 
 function unshift(trades::DataFrame)
@@ -125,8 +125,8 @@ end
 
 function get_holdings(target::DataFrame, nonCore::DataFrame)
   return @from asset in leftjoin(target, nonCore, on = :Symbol) begin
-    @orderby descending(asset.Target_Allocation), descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Description, Quantity=get(asset.Quantity, 0.0), Current_Value=get(asset.Current_Value, "\$0.00"), asset.Target_Allocation}
+    @orderby descending(asset.Target), descending(dtoi(get(asset.Current_Value, "\$0.00")))
+    @select {asset.Symbol, asset.Description, Quantity=get(asset.Quantity, 0.0), Current_Value=get(asset.Current_Value, "\$0.00"), asset.Target}
     @collect DataFrame
   end
 end
@@ -134,7 +134,7 @@ end
 function get_exiting(target::DataFrame, nonCore::DataFrame)
   exits = @from asset in nonCore begin
     @orderby descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Target_Allocation=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Drift=NaN}
+    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Target=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Drift=NaN}
     @collect DataFrame
   end
   return filter(e -> !(e.Symbol in target.Symbol), exits)
@@ -158,10 +158,10 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   exiting = get_exiting(target, nonCore)
   # target assets (trade them)
   holdings = get_holdings(target, nonCore)
-  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/non_core_value) - h.Target_Allocation)*10, RoundNearestTiesAway)/10, eachrow(holdings))
+  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/non_core_value) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
   printframe(holdings)
   # trade value in dollars
-  tradeAmount = allocate(newTotal, holdings.Target_Allocation[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])
+  tradeAmount = allocate(newTotal, holdings.Target[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])
   tradeType = map(t -> t < 0 ? "SELL" : "BUY", tradeAmount)
   holdings[!, :Trade_Type] = tradeType
   holdings[!, :Trade_Value] = itod.(tradeAmount)
@@ -177,13 +177,13 @@ function optimize_trades(trades::DataFrame, cash::Int)
   sells = @from trade in trades begin
     @where trade.Trade_Type == "SELL"
     @orderby dtoi(trade.Trade_Value)
-    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="CASH", Trade_Quantity=NaN}
+    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="CASH", Trade_Shares=NaN}
     @collect DataFrame
   end
   buys = @from trade in trades begin
     @where trade.Trade_Type == "BUY"
     @orderby descending(dtoi(trade.Trade_Value))
-    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="", Trade_Quantity=NaN}
+    @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="", Trade_Shares=NaN}
     @collect DataFrame
   end
   trades = similar(sells, 0)
@@ -262,7 +262,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
   for trade in eachrow(trades)
     if trade.Trade_Type == "BUY"
       # skip trade-quantity for buys
-      trade.Trade_Quantity = NaN
+      trade.Trade_Shares = NaN
       trade.Trade_For = ""
       continue
     end
@@ -281,7 +281,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
       # allocate shares in thousandths
       trade_quantity, remaining_quantity = allocate(remaining_quantity, [trade_value, remaining_value])
     end
-    trade.Trade_Quantity = itoq(trade_quantity)
+    trade.Trade_Shares = itoq(trade_quantity)
   end
   # split trades into sells-first, and buys-second
   first = @from trade in trades begin
@@ -323,12 +323,12 @@ function optimize_trades(trades::DataFrame, cash::Int)
   # final sort
   first = @from t in first begin
     @orderby endswith(get(t.Trade_For, "?"), "XX"), endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
-    @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
+    @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Shares, t.Trade_For}
     @collect DataFrame
   end
   second = @from t in second begin
     @orderby endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
-    @select {t.Symbol, t.Description, t.Trade_Type, t.Trade_Value, t.Trade_Quantity, t.Trade_For}
+    @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Shares, t.Trade_For}
     @collect DataFrame
   end
   return first, second

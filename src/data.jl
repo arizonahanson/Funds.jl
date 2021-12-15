@@ -153,13 +153,14 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   core_value = sum_dtoi(core.Current_Value)
   non_core_value = sum_dtoi(nonCore.Current_Value)
   cash = core_value + deposit
+  accountTotal = core_value + non_core_value
   newTotal = non_core_value + cash
   # assets not in target (sell them)
   exiting = get_exiting(target, nonCore)
   # target assets (trade them)
   holdings = get_holdings(target, nonCore)
   # calculate drift from target
-  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/newTotal) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
+  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/accountTotal) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
   printframe(holdings)
   # trade value in dollars
   tradeAmount = allocate(newTotal, holdings.Target[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])

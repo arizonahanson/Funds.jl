@@ -149,7 +149,7 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   end
   # assets other than core position
   nonCore = get_non_core(account)
-  # new account total
+  # account totals
   core_value = sum_dtoi(core.Current_Value)
   non_core_value = sum_dtoi(nonCore.Current_Value)
   cash = core_value + deposit
@@ -158,7 +158,8 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   exiting = get_exiting(target, nonCore)
   # target assets (trade them)
   holdings = get_holdings(target, nonCore)
-  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/non_core_value) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
+  # calculate drift from target
+  holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/newTotal) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
   printframe(holdings)
   # trade value in dollars
   tradeAmount = allocate(newTotal, holdings.Target[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])
@@ -186,6 +187,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
     @select {trade.Symbol, trade.Description, trade.Quantity, trade.Current_Value, trade.Trade_Type, trade.Trade_Value, Trade_For="", Trade_Shares=NaN}
     @collect DataFrame
   end
+  # find mutual fund exchanges
   trades = similar(sells, 0)
   while true
     if nrow(sells) == 0
@@ -249,7 +251,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
       end
     end
   end
-  # filter-out zero-values
+  # filter-out zero-value trades
   trades = @from trade in trades begin
     @where dtoi(trade.Trade_Value) != 0
     @select trade

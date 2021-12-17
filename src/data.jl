@@ -151,6 +151,7 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   nonCore = get_non_core(account)
   # account totals
   core_value = sum_dtoi(core.Current_Value)
+  println("\n-- CORE TOTAL ", itod(core_value), " --")
   non_core_value = sum_dtoi(nonCore.Current_Value)
   cash = core_value + deposit
   accountTotal = core_value + non_core_value

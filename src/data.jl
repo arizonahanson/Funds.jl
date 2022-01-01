@@ -326,12 +326,12 @@ function optimize_trades(trades::DataFrame, cash::Int)
   end
   # final sort
   first = @from t in first begin
-    @orderby endswith(get(t.Trade_For, "?"), "XX"), endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
+    @orderby endswith(get(t.Trade_For, "?"), "XX"), endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), descending(abs(dtoi(t.Trade_Value)))
     @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Shares, t.Trade_For}
     @collect DataFrame
   end
   second = @from t in second begin
-    @orderby endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), t.Symbol, descending(abs(dtoi(t.Trade_Value)))
+    @orderby endswith(get(t.Symbol, "?"), "XX"), endswith(get(t.Symbol, "?"), "X"), descending(t.Trade_Type), descending(abs(dtoi(t.Trade_Value)))
     @select {t.Symbol, t.Trade_Type, t.Trade_Value, t.Trade_Shares, t.Trade_For}
     @collect DataFrame
   end

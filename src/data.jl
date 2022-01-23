@@ -134,7 +134,7 @@ end
 function get_exiting(target::DataFrame, nonCore::DataFrame)
   exits = @from asset in nonCore begin
     @orderby descending(dtoi(get(asset.Current_Value, "\$0.00")))
-    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Target=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Drift=NaN}
+    @select {asset.Symbol, asset.Description, asset.Quantity, asset.Current_Value, Target=0, Trade_Type="SELL", Trade_Value=itod(-dtoi(get(asset.Current_Value, "\$0.00"))), Drift=NaN, DriftPct=NaN}
     @collect DataFrame
   end
   return filter(e -> !(e.Symbol in target.Symbol), exits)
@@ -162,6 +162,7 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   holdings = get_holdings(target, nonCore)
   # calculate drift from target
   holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/accountTotal) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
+  holdings[!, :DriftPct] = map(h -> round(h.Drift*100/h.Target*10)/10, eachrow(holdings))
   printframe(holdings)
   # trade value in dollars
   tradeAmount = allocate(newTotal, holdings.Target[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])

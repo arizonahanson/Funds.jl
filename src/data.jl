@@ -257,6 +257,7 @@ function optimize_trades(trades::DataFrame, cash::Int)
   # filter-out zero-value trades
   trades = @from trade in trades begin
     @where dtoi(trade.Trade_Value) != 0
+    @orderby trade.Symbol
     @select trade
     @collect DataFrame
   end

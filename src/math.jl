@@ -3,8 +3,13 @@ function allocate(amount::Int, ratios::Vector{<:Int})
   total = sum(ratios)
   shares = map(ratio -> Int(floor(amount * ratio / total)), ratios)
   remainder = amount - sum(shares)
-  for i in 1:remainder
+  # sortperm gives index to interate in sort-order, without sorting
+  for i in sortperm(shares; rev=true)
+    if remainder == 0
+      break
+    end
     shares[i] += 1
+    remainder -= 1
   end
   return shares
 end

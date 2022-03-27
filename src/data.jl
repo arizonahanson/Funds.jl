@@ -143,7 +143,7 @@ end
 function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   # core cash and pending
   core = get_core(account)
-  println("\n-- STATUS --")
+  println("\n---- HOLDINGS ----")
   if nrow(core) > 0
     printframe(core)
   end
@@ -151,7 +151,6 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   nonCore = get_non_core(account)
   # account totals
   core_value = sum_dtoi(core.Current_Value)
-  println("\n-- CORE TOTAL ", itod(core_value), " --")
   non_core_value = sum_dtoi(nonCore.Current_Value)
   cash = core_value + deposit
   accountTotal = core_value + non_core_value
@@ -164,6 +163,7 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   holdings[!, :Drift] = map(h -> round(((dtoi(h.Current_Value)*100/accountTotal) - h.Target)*10, RoundNearestTiesAway)/10, eachrow(holdings))
   holdings[!, :DriftPct] = map(h -> round(h.Drift*100/h.Target*10)/10, eachrow(holdings))
   printframe(holdings)
+  println("CASH | ", itod(core_value))
   # trade value in dollars
   tradeAmount = allocate(newTotal, holdings.Target[:,1]) - map(h -> dtoi(h), holdings.Current_Value[:,1])
   tradeType = map(t -> t < 0 ? "SELL" : "BUY", tradeAmount)
@@ -172,8 +172,12 @@ function generate_trades(account::DataFrame, target::DataFrame, deposit::Int=0)
   # combine all tradable holdings
   trades = vcat(holdings, exiting)
   # create exchange trades, sort
-  trades = optimize_trades(trades, cash)
-  return trades
+  first, second = optimize_trades(trades, cash)
+  println("\n---- TRADES ----")
+  settle = print_trades(first, core_value)
+  if nrow(second) > 0
+    settle = print_trades(second, settle)
+  end
 end
 
 function optimize_trades(trades::DataFrame, cash::Int)
@@ -344,16 +348,23 @@ function printframe(df::DataFrame)
   println(replace(sprint(show, df, context=:compact=>false), r".*DataFrame" => ""))
 end
 
+function print_trades(trades::DataFrame, core::Int)
+  printframe(trades)
+  nonex = @from trade in trades begin
+    @where trade.Trade_Type != "EXCHANGE"
+    @select trade
+    @collect DataFrame
+  end
+  settle = max(0, core) - sum_dtoi(nonex.Trade_Value)
+  println("CASH | ", itod(settle))
+  return settle
+end
+
 function rebalance(deposit::Int=0)
   accounts = open_fidelity_csv()
   strategy = open_strategy_csv()
   println()
   account = get_account(accounts)
   target = make_target(strategy)
-  a, b = generate_trades(account, target, deposit)
-  println("\n---- TRADES ----")
-  printframe(a)
-  if nrow(b) > 0
-    printframe(b)
-  end
+  generate_trades(account, target, deposit)
 end
